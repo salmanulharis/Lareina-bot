@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# Virtual environment
+venv/
+ENV/
+.env/
+.venv/
+
+# Environment variables
+.env
+*.env
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Misc
+*.bak
+*.swp
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# Coverage
+htmlcov/
+.coverage
+
+# Pytest
+.cache/
+
+# Flask
+instance/
+.webassets-cache
+
+# Distribution
+build/
+dist/
+*.egg-info/
