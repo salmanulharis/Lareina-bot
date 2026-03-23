@@ -9,7 +9,8 @@ app = Flask(__name__)
 def webhook():
 
     data = request.json
-    print("Incoming:", data)
+    print('Incoming: ', data)
+    print_values(data)
 
     if "message" in data or "hi" in data:
         handle_message(data["message"])
@@ -19,6 +20,13 @@ def webhook():
 
     return {"status": "ok"}
 
+
+def print_values(d):
+    for key, value in d.items():
+        if isinstance(value, dict):
+            print_values(value)
+        else:
+            print(f"{key}: {value}")
 
 if __name__ == "__main__":
     app.run(port=5000, debug=True)

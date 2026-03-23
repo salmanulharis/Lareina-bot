@@ -1,5 +1,7 @@
 # Python
 __pycache__/
+*/__pycache__/
+*/__pycache__
 *.py[cod]
 *.pyo
 *.pyd
@@ -47,3 +49,6 @@ instance/
 build/
 dist/
 *.egg-info/
+
+# json files
+data.json

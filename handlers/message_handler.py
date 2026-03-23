@@ -1,83 +1,61 @@
+from helpers.chat_helpers import handle_character_name, handle_make_character, handle_start, handle_character_age, handle_character_body, handle_chat_message
 from utils.telegram_api import send_message
-from keyboards.menus import food_menu, drink_menu
-from services.user_session import user_states, user_data
+from helpers.setup_helpers import reset_json_data, get_json_data, update_json_data, set_state, get_state
 
 
 def handle_message(message):
 
     chat_id = message["chat"]["id"]
     text = message.get("text")
+    json_data = get_json_data()
+    character_name = json_data.get('character_name')
+    character_age = json_data.get('character_age')
+    character_body = json_data.get('character_body')
 
-    state = user_states.get(chat_id)
+    state = get_state()
+
+    if text and (text.startswith("/reset")):
+        reset_json_data()
+        send_message(chat_id, "Session reset. Send /start to begin again.")
+        return
 
     # Start command
-    if text and (text.startswith("/start") or text.lower().startswith("hi")):
-
-        user_states[chat_id] = "SELECT_FOOD"
-        user_data[chat_id] = {}
-
-        send_message(
-            chat_id,
-            "Welcome! Choose your food:",
-            reply_markup=food_menu()
-        )
-
+    if text and (text.startswith("/start")):
+        handle_start(message)
         return
-
-    # Address input step
-    if state == "ENTER_ADDRESS":
-
-        user_data[chat_id]["address"] = text
-
-        food = user_data[chat_id]["food"]
-        drink = user_data[chat_id]["drink"]
-        address = user_data[chat_id]["address"]
-
-        response = f"""
-Order summary:
-
-Food: {food}
-Drink: {drink}
-Address: {address}
-"""
-
-        send_message(chat_id, response)
-
-        # reset state
-        user_states.pop(chat_id, None)
-
+    
+    if text and text.lower() == "/setup":
+        handle_make_character(message)
         return
+    
+    if character_name and character_age and character_body:
+        handle_chat_message(message)
+        return
+    
 
     send_message(chat_id, "Send /start to begin.")
 
 
 def handle_callback(callback):
 
-    chat_id = callback["message"]["chat"]["id"]
+    message = callback["message"]
     data = callback["data"]
 
-    state = user_states.get(chat_id)
+    state = get_state()
 
-    # FOOD SELECTION
-    if state == "SELECT_FOOD":
-
-        user_data[chat_id]["food"] = data
-        user_states[chat_id] = "SELECT_DRINK"
-
-        send_message(
-            chat_id,
-            "Choose your drink:",
-            reply_markup=drink_menu()
-        )
-
+    # NAME SELECTION
+    if state == "AWAITING_CHARACTER_NAME":
+        handle_character_name(message, data)
         return
-
-    # DRINK SELECTION
-    if state == "SELECT_DRINK":
-
-        user_data[chat_id]["drink"] = data
-        user_states[chat_id] = "ENTER_ADDRESS"
-
-        send_message(chat_id, "Enter your delivery address:")
-
+    
+    if state == "SELECT_AGE":
+        handle_character_age(message, data)
         return
+    
+    if state == "SELECT_BODY":
+        handle_character_body(message, data)
+        return
+    
+    send_message(message["chat"]["id"], "Unknown action. Please follow the prompts.")
+
+
