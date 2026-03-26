@@ -34,13 +34,25 @@ options = {
     },
 
     "body_types": {
-        "petite": "Petite",
-        "slim": "Slim",
-        "curvy": "Curvy",
-        "athletic": "Athletic",
-        "average": "Average",
-        "tall_slim": "Tall & Slim",
-        "fit_curvy": "Fit & Curvy"
+        "petite_curvy": "Petite & Curvy",
+        "slim_thick": "Slim Thick",
+        "hourglass": "Hourglass Figure",
+        "fit_curvy": "Fit & Curvy",
+        "lean_athletic": "Lean Athletic",
+        "voluptuous": "Voluptuous",
+        "tall_model": "Tall Model-like",
+        "perfect_curvy_blonde": "Perfect Curvy Blonde"
+    },
+
+    "body_types_description": {
+        "petite_curvy": "short height, compact frame, soft curves, proportionate bust and hips, youthful appearance",
+        "slim_thick": "slim waist, fuller hips, rounded curves, toned legs, balanced and modern attractive proportions",
+        "hourglass": "defined waist, balanced bust and hips, natural symmetry, classic feminine proportions",
+        "fit_curvy": "toned body, visible fitness, soft curves, firm shape, athletic yet feminine look",
+        "lean_athletic": "lean muscle tone, light definition, smaller curves, sporty and energetic appearance",
+        "voluptuous": "fuller body, soft curves, wider hips, fuller bust, smooth and rounded proportions",
+        "tall_model": "tall height, long legs, slim body, elegant posture, fashion model proportions",
+        "perfect_curvy_blonde": "hourglass body, full bust, wide hips, defined waist, rounded curves, toned thighs, long blonde hair, soft waves"
     }
 }
 
@@ -55,3 +67,5 @@ character_keyboard = create_menu(options, "characters", columns=2, prefix="char"
 
 # Body type menu
 body_keyboard = create_menu(options, "body_types", columns=2, prefix="body")
+
+body_descriptions = options["body_types_description"]

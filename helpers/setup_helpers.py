@@ -2,6 +2,7 @@ import json_helper as jhelper
 
 def reset_json_data():
     jhelper.set_all({})
+    jhelper.clear_memory()
 
 def get_json_data():
     return jhelper.get_all()

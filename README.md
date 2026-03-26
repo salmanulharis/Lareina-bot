@@ -38,6 +38,11 @@ Create a `.env` file in the project root:
 ```env
 # .env example
 BOT_TOKEN=your_telegram_bot_token
+MODEL_NAME=mistral
+LLM_API_URL=http://localhost:11434/api/generate
+COMFYUI_URL=http://localhost:8188/api/v1/generate
+COMFYUI_MODEL_NAME=realisticVision.safetensors
+LORA_MODEL_KOREAN_NAME=korean_beauty.safetensors
 ```
 
 ---

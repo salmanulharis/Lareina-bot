@@ -1,4 +1,4 @@
-from helpers.chat_helpers import handle_character_name, handle_make_character, handle_start, handle_character_age, handle_character_body, handle_chat_message
+from helpers.chat_helpers import handle_character_characteristics, handle_character_name, handle_make_character, handle_start, handle_character_age, handle_character_body, handle_chat_message
 from utils.telegram_api import send_message
 from helpers.setup_helpers import reset_json_data, get_json_data, update_json_data, set_state, get_state
 
@@ -11,6 +11,7 @@ def handle_message(message):
     character_name = json_data.get('character_name')
     character_age = json_data.get('character_age')
     character_body = json_data.get('character_body')
+    character_characteristics = json_data.get('character_characteristics')
 
     state = get_state()
 
@@ -28,12 +29,12 @@ def handle_message(message):
         handle_make_character(message)
         return
     
-    if character_name and character_age and character_body:
+    if character_name and character_age and character_body and character_characteristics:
         handle_chat_message(message)
         return
     
 
-    send_message(chat_id, "Send /start to begin.")
+    send_message(chat_id, "Send /start to begin. Send /setup to create your character. Send /reset to start over.")
 
 
 def handle_callback(callback):
@@ -54,6 +55,10 @@ def handle_callback(callback):
     
     if state == "SELECT_BODY":
         handle_character_body(message, data)
+        return
+    
+    if state == "SELECT_CHARACTERISTICS":
+        handle_character_characteristics(message, data)
         return
     
     send_message(message["chat"]["id"], "Unknown action. Please follow the prompts.")

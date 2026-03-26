@@ -1,3 +1,5 @@
+import os
+from dotenv import load_dotenv
 import random
 import requests
 import time
@@ -5,16 +7,27 @@ import uuid
 from pathlib import Path
 from helpers.setup_helpers import get_json_data
 
-COMFYUI_URL = "https://hypothetical-mitsubishi-genes-tracy.trycloudflare.com"
+load_dotenv()
+COMFYUI_URL = os.getenv("COMFYUI_URL")
+COMFYUI_MODEL_NAME = os.getenv("COMFYUI_MODEL_NAME")
+LORA_MODEL_KOREAN_NAME = os.getenv("LORA_MODEL_KOREAN_NAME")
 
-MODEL_NAME = "realisticVision.safetensors"
+
+# CHARACTER_BASE = (
+#     "1girl, solo, ultra realistic, photorealistic, RAW photo, "
+#     "soft natural skin, detailed face, real human texture, "
+#     "natural lighting, cinematic light, 50mm lens, shallow depth of field, "
+#     "beautiful eyes, natural lips, soft expression, "
+#     "realistic imperfections, skin pores, subtle makeup"
+# )
 
 CHARACTER_BASE = (
-    "1girl, solo, ultra realistic, photorealistic, RAW photo, "
-    "soft natural skin, detailed face, real human texture, "
-    "natural lighting, cinematic light, 50mm lens, shallow depth of field, "
-    "beautiful eyes, natural lips, soft expression, "
-    "realistic imperfections, skin pores, subtle makeup"
+    "RAW photo, ultra realistic, photorealistic, 8k, DSLR, "
+    "natural skin texture, visible pores, soft imperfections, "
+    "cinematic lighting, soft shadows, realistic highlights, "
+    "50mm lens, shallow depth of field, bokeh, "
+    "natural expression, relaxed face, subtle emotion, "
+    "real human proportions, candid moment"
 )
 
 USE_IPADAPTER = True
@@ -25,6 +38,7 @@ USE_LORA = False   # ⚠️ SET TRUE only if LoRA nodes exist in ComfyUI
 
 
 def should_generate_image(text):
+    print(f"Checking if should generate image for text: {text}")
     if not text:
         return False
 
@@ -42,34 +56,57 @@ def should_generate_image(text):
     return any(t in text for t in triggers)
 
 
-def generate_image_prompt(text, ask_ollama):
+def generate_image_prompt(text, ask_ollama, memory_context):
     prompt = f"""
-You generate image prompts.
-Reply ONLY with a realistic photo scenario.
-Focus on natural human situations, lighting, and emotion.
-Max 20 words.
+Convert chat into a realistic selfie scene.
 
-User: {text}
+Keep it short (max 15 words).
+
+Context:
+{memory_context}
+
+User message:
+{text}
+
+Output ONLY scene description.
 """
     try:
         return ask_ollama(prompt)
     except:
         return text
 
+def detect_frame_type(text):
+    text = text.lower()
 
+    if any(k in text for k in ["full", "full body", "head to toe", "stand"]):
+        return "full"
+    elif any(k in text for k in ["selfie", "face", "close"]):
+        return "close"
+    else:
+        return "medium"
+    
 def build_workflow(prompt):
     json_data = get_json_data()
     seed = json_data.get("character_seed", random.randint(1, 999999999))
 
+    frame = detect_frame_type(prompt)
+
+    if frame == "full":
+        width, height = 768, 1024
+    elif frame == "close":
+        width, height = 512, 768
+    else:
+        width, height = 640, 896
+
     workflow = {
         "4": {
             "class_type": "CheckpointLoaderSimple",
-            "inputs": {"ckpt_name": MODEL_NAME}
+            "inputs": {"ckpt_name": COMFYUI_MODEL_NAME}
         },
 
         "5": {
             "class_type": "EmptyLatentImage",
-            "inputs": {"batch_size": 1, "height": 768, "width": 512}
+            "inputs": {"batch_size": 1, "height": height, "width": width}
         },
 
         "6": {
@@ -85,9 +122,7 @@ def build_workflow(prompt):
             "inputs": {
                 "clip": ["4", 1],
                 "text": (
-                    "cartoon, anime, cgi, render, painting, fake, doll, plastic skin, "
-                    "over smooth, blurry, low quality, bad anatomy, deformed face, "
-                    "extra fingers, mutated hands, unrealistic, oversharpen, overexposed"
+                    "low quality, blurry, bad anatomy, distorted face, extra limbs, duplicate, watermark, text"
                 )
             }
         },
@@ -95,16 +130,16 @@ def build_workflow(prompt):
         "3": {
             "class_type": "KSampler",
             "inputs": {
-                "cfg": 5.5,
-                "denoise": 1,
+                "cfg": 4.5,
+                "denoise": 0.65,
                 "latent_image": ["5", 0],
                 "model": ["4", 0],
                 "negative": ["7", 0],
                 "positive": ["6", 0],
-                "sampler_name": "euler",
-                "scheduler": "normal",
+                "sampler_name": "dpmpp_2m",
+                "scheduler": "karras",
                 "seed": seed,
-                "steps": 28
+                "steps": 30
             }
         },
 
@@ -124,9 +159,9 @@ def build_workflow(prompt):
         workflow["20"] = {
             "class_type": "LoRALoader",
             "inputs": {
-                "lora_name": "korean_beauty.safetensors",
-                "strength_model": 0.6,
-                "strength_clip": 0.6,
+                "lora_name": LORA_MODEL_KOREAN_NAME,
+                "strength_model": 0.7,
+                "strength_clip": 0.5,
                 "model": ["4", 0],
                 "clip": ["4", 1]
             }
@@ -147,7 +182,7 @@ def build_workflow(prompt):
                 "clip_vision": ["13", 0],
                 "image": ["11", 0],
                 "model": ["4", 0],
-                "weight": 0.6
+                "weight": 0.75
             }
         }
 

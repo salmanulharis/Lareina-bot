@@ -1,9 +1,12 @@
+import os
+from dotenv import load_dotenv
 import requests
 
-# Change this to your Ollama server URL if needed
-OLLAMA_API_URL = "http://localhost:11434/api/generate"
+load_dotenv()
+OLLAMA_API_URL = os.getenv("LLM_API_URL")
+MODEL_NAME = os.getenv("MODEL_NAME")
 
-def ask_ollama(prompt, model="llama3"):
+def ask_ollama(prompt, model=MODEL_NAME):
     payload = {
         "model": model,
         "prompt": prompt,

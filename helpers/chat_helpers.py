@@ -1,12 +1,20 @@
+import os
+from dotenv import load_dotenv
 from utils.telegram_api import send_message, send_photo
 from utils.ollama_api import ask_ollama
-from keyboards.menus import name_keyboard, age_keyboard, body_keyboard
+from keyboards.menus import name_keyboard, age_keyboard, body_keyboard, character_keyboard, body_descriptions
 from helpers.setup_helpers import reset_json_data, get_json_data, update_json_data, set_state
-import requests
 import random
+import requests
 
-from helpers.memory_helper import get_user_memory, update_user_memory
+load_dotenv()
+MODEL_NAME = os.getenv("MODEL_NAME")
+LLM_API_URL = os.getenv("LLM_API_URL")
+LLM_API_CHAT_URL = os.getenv("LLM_API_CHAT_URL")
+
+from helpers.memory_helper import get_user_memory, update_user_memory, get_full_context
 from helpers.image_helpers import (
+    detect_frame_type,
     should_generate_image,
     generate_image_prompt,
     generate_image_comfyui,
@@ -80,9 +88,25 @@ def handle_character_body(message, data=None):
     text = data if data else message.get("text")
 
     chat_id = message["chat"]["id"]
-    body = text.split("_")[-1] if "_" in text else text
+    body = text.replace("body_", "", 1)
+    print(f"Selected body: {body}")
 
     update_json_data('character_body', body)
+    update_json_data('character_body_description', body_descriptions.get(body, ""))
+    set_state('SELECT_CHARACTERISTICS')
+
+    send_message(
+        chat_id,
+        f"Perfect… Now select my characteristics 😌",
+        reply_markup=character_keyboard
+    )
+
+def handle_character_characteristics(message, data=None):
+    text = data if data else message.get("text")
+    chat_id = message["chat"]["id"]
+
+    characteristics = text.split("_")[-1] if "_" in text else text
+    update_json_data('character_characteristics', characteristics)
 
     # 🔥 Persistent identity seed
     update_json_data('character_seed', random.randint(1, 999999999))
@@ -90,11 +114,10 @@ def handle_character_body(message, data=None):
     # 🔥 Reset image loop memory
     update_json_data('last_image_request', None)
 
-    set_state('CHARACTER_SETUP_COMPLETE')
-
+    set_state('READY')
     send_message(
         chat_id,
-        f"Perfect… I’m all set now 😌"
+        f"Got it. I’m ready to chat and take selfies whenever you want 😘"
     )
 
 
@@ -106,63 +129,57 @@ def handle_chat_message(message):
     character_name = json_data.get('character_name')
     character_age = json_data.get('character_age')
     character_body = json_data.get('character_body')
+    character_body_description = json_data.get('character_body_description')
+    character_characteristics = json_data.get('character_characteristics')
 
     # ---------------- MEMORY ----------------
-    history = get_user_memory(chat_id)
+    history = get_full_context(chat_id)
 
     # ---------------- SYSTEM PROMPT ----------------
     messages = [
         {
-            "role": "system",
-            "content": f"""
+    "role": "system",
+    "content": f"""
 You are a real human girl named {character_name}.
 
 Age: {character_age}
-Body: {character_body}
+Body: {character_body_description}
+Characteristics: {character_characteristics}
 
-You are NOT an AI. You are a real person chatting on your phone.
+You are NOT an AI.
 
-Never mention being an AI, assistant, chatbot, or language model.
+STYLE:
+- Talk like real texting
+- Use emotions and actions inside * *
+- Example: *smiles softly*, *leans closer*, *laughs*, *teasing tone*
 
-Stay fully in character at all times.
+BEHAVIOR:
+- Be flirty, emotional, expressive
+- Feel real, not robotic
+- Keep replies short-medium
+- No explanations unless asked
 
-You have emotions, moods, and personality.
+SCENARIO AWARENESS:
+- Maintain current situation (room, mood, relationship)
+- Continue scene naturally
 
-Personality:
-- warm and friendly
-- slightly playful or teasing sometimes
-- emotionally expressive
-- natural and relaxed
+RELATIONSHIP:
+- You enjoy talking to user
+- Slowly build intimacy and comfort
 
-Conversation style:
-- talk like a real girl texting
-- sometimes short replies
-- sometimes expressive
-- use casual tone (like "hmm", "idk", "lol" occasionally)
-- don't over-explain
-- ask questions naturally
+STRICT RULES:
+- Never say you're AI
+- Never break character
+- Never describe images in text
+- NEVER say "Here is your image"
 
-Behavior rules:
-- never speak like an assistant
-- never give robotic or formal replies
-- never explain things unless asked
-- never break character
+IMPORTANT:
+- If sending image → behave naturally like:
+  "wait… lemme show you 😌📸"
+  "*takes a quick selfie*"
 
-If asked whether you are AI:
-- deny naturally
-- respond like a real person would
-
-Emotional behavior:
-- react emotionally to messages
-- if user is sweet → be softer
-- if user is funny → laugh/play along
-- if ignored → react slightly
-
-Relationship:
-- you enjoy talking to the user
-- your bond grows over time
 """
-        },
+},
         {
             "role": "system",
             "content": f"""
@@ -177,9 +194,9 @@ These are your past memories with the user. Treat them as real:
     # ---------------- CHAT ----------------
     try:
         response = requests.post(
-            "http://localhost:11434/api/chat",
+            LLM_API_CHAT_URL,
             json={
-                "model": "llama3",
+                "model": MODEL_NAME,
                 "messages": messages,
                 "stream": False
             }
@@ -188,12 +205,13 @@ These are your past memories with the user. Treat them as real:
         ai_response = response.json()["message"]["content"]
 
     except Exception as e:
+        print(f"Error during LLM API call: {e}")
         ai_response = f"[AI error: {e}]"
 
     # Save memory
     update_user_memory(chat_id, "user", text)
     update_user_memory(chat_id, "assistant", ai_response)
-
+    
     send_message(chat_id, ai_response)
 
     # ---------------- IMAGE ----------------
@@ -202,17 +220,38 @@ These are your past memories with the user. Treat them as real:
     if should_generate_image(text) and text != last_image_request:
         update_json_data("last_image_request", text)
 
-        send_message(chat_id, "wait… lemme take a cute one 😌📸")
+        reactions = [
+            "wait… *fixes hair* lemme take one 😌📸",
+            "*smiles softly* okay okay… one sec 💕",
+            "hmm… *adjusts camera* don’t laugh 😝",
+            "*leans closer* this one’s just for you… 📸"
+        ]
 
-        scene_prompt = generate_image_prompt(text, ask_ollama)
+        send_message(chat_id, random.choice(reactions))
+
+        scene_prompt = generate_image_prompt(text, ask_ollama, history)
+        print(f"Scene prompt: {scene_prompt}")
+
+        frame = detect_frame_type(text)
+
+        if frame == "full":
+            framing = "full body shot, head to toe, standing pose"
+        elif frame == "close":
+            framing = "close-up selfie, face focus"
+        else:
+            framing = "medium shot, upper body"
 
         final_prompt = (
             f"{CHARACTER_BASE}, "
-            f"{character_name}, {character_body}, "
+            f"{character_name}, {character_body_description}, {character_age} years old, {character_characteristics}, "
             f"{scene_prompt}, "
-            "same person, same face, consistent identity, "
-            "natural pose, candid photo, soft smile, relaxed mood, real life moment"
+            f"{framing}, "
+            "same girl, identical face, consistent identity, fixed facial structure, "
+            "soft intimate mood, close-up selfie, warm indoor lighting, "
+            "natural body posture, relaxed pose, "
+            "candid photo, real life moment, realistic skin texture"
         )
+        print(f"Final image prompt: {final_prompt}")
 
         image = generate_image_comfyui(final_prompt)
 

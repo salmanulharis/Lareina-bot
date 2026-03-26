@@ -2,6 +2,7 @@ import json
 import os
 
 _FILE = "data.json"
+_MEMORY_FILE = "memory.json"
 
 
 # ---------- Internal ----------
@@ -84,4 +85,44 @@ def delete_options(keys: list):
 # ✅ Clear all
 def clear_all():
     _write({})
+    return {}
+
+
+# ---------- Memory (Separate) ----------
+def get_memory():
+    if not os.path.exists(_MEMORY_FILE):
+        return {}
+
+    try:
+        with open(_MEMORY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        return {}
+    
+def save_memory(data: dict):
+    with open(_MEMORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
+def get_memory_option(key, default=None):
+    data = get_memory()
+    return data.get(key, default)
+
+def update_memory_option(key, value):
+    data = get_memory()
+    data[key] = value
+    save_memory(data)
+    return value
+
+def delete_memory_option(key):
+    data = get_memory()
+
+    if key in data:
+        del data[key]
+        save_memory(data)
+        return True
+
+    return False
+
+def clear_memory():
+    save_memory({})
     return {}
