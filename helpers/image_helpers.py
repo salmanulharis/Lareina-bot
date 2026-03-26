@@ -1,31 +1,53 @@
+import random
 import requests
 import time
 import uuid
 from pathlib import Path
+from helpers.setup_helpers import get_json_data
 
-COMFYUI_URL = "https://unto-martial-palace-lock.trycloudflare.com"
+COMFYUI_URL = "https://hypothetical-mitsubishi-genes-tracy.trycloudflare.com"
 
-FIXED_SEED = 42069
-MODEL_NAME = "realisticVisionV60B1_v51HyperVAE.safetensors"
+MODEL_NAME = "realisticVision.safetensors"
 
-CHARACTER_BASE = "1girl, realistic, detailed, consistent character"
+CHARACTER_BASE = (
+    "1girl, solo, ultra realistic, photorealistic, RAW photo, "
+    "soft natural skin, detailed face, real human texture, "
+    "natural lighting, cinematic light, 50mm lens, shallow depth of field, "
+    "beautiful eyes, natural lips, soft expression, "
+    "realistic imperfections, skin pores, subtle makeup"
+)
 
 USE_IPADAPTER = True
 REFERENCE_IMAGE = "aria_reference.png"
 
+# 🔥 Toggle LoRA safely
+USE_LORA = False   # ⚠️ SET TRUE only if LoRA nodes exist in ComfyUI
+
 
 def should_generate_image(text):
-    keywords = [
-        "image", "photo", "picture", "selfie",
-        "show", "look like", "wearing", "send me"
+    if not text:
+        return False
+
+    text = text.lower()
+
+    triggers = [
+        "send photo",
+        "send image",
+        "selfie",
+        "show yourself",
+        "show me you",
+        "i want to see you"
     ]
-    return any(k in text.lower() for k in keywords)
+
+    return any(t in text for t in triggers)
 
 
 def generate_image_prompt(text, ask_ollama):
     prompt = f"""
 You generate image prompts.
-Reply ONLY with a short scene description (max 15 words).
+Reply ONLY with a realistic photo scenario.
+Focus on natural human situations, lighting, and emotion.
+Max 20 words.
 
 User: {text}
 """
@@ -36,11 +58,44 @@ User: {text}
 
 
 def build_workflow(prompt):
+    json_data = get_json_data()
+    seed = json_data.get("character_seed", random.randint(1, 999999999))
+
     workflow = {
+        "4": {
+            "class_type": "CheckpointLoaderSimple",
+            "inputs": {"ckpt_name": MODEL_NAME}
+        },
+
+        "5": {
+            "class_type": "EmptyLatentImage",
+            "inputs": {"batch_size": 1, "height": 768, "width": 512}
+        },
+
+        "6": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "clip": ["4", 1],
+                "text": prompt + ", high quality, realistic photo"
+            }
+        },
+
+        "7": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "clip": ["4", 1],
+                "text": (
+                    "cartoon, anime, cgi, render, painting, fake, doll, plastic skin, "
+                    "over smooth, blurry, low quality, bad anatomy, deformed face, "
+                    "extra fingers, mutated hands, unrealistic, oversharpen, overexposed"
+                )
+            }
+        },
+
         "3": {
             "class_type": "KSampler",
             "inputs": {
-                "cfg": 7,
+                "cfg": 5.5,
                 "denoise": 1,
                 "latent_image": ["5", 0],
                 "model": ["4", 0],
@@ -48,43 +103,40 @@ def build_workflow(prompt):
                 "positive": ["6", 0],
                 "sampler_name": "euler",
                 "scheduler": "normal",
-                "seed": FIXED_SEED,
-                "steps": 15
+                "seed": seed,
+                "steps": 28
             }
         },
-        "4": {
-            "class_type": "CheckpointLoaderSimple",
-            "inputs": {"ckpt_name": MODEL_NAME}
-        },
-        "5": {
-            "class_type": "EmptyLatentImage",
-            "inputs": {"batch_size": 1, "height": 384, "width": 384}
-        },
-        "6": {
-            "class_type": "CLIPTextEncode",
-            "inputs": {
-                "clip": ["4", 1],
-                "text": prompt + ", high quality, detailed, realistic"
-            }
-        },
-        "7": {
-            "class_type": "CLIPTextEncode",
-            "inputs": {
-                "clip": ["4", 1],
-                "text": "blurry, ugly, bad quality"
-            }
-        },
+
         "8": {
             "class_type": "VAEDecode",
             "inputs": {"samples": ["3", 0], "vae": ["4", 2]}
         },
+
         "9": {
             "class_type": "SaveImage",
             "inputs": {"filename_prefix": "bot", "images": ["8", 0]}
         }
     }
 
-    # 🔥 IP-Adapter
+    # 🔥 SAFE LoRA (only if enabled)
+    if USE_LORA:
+        workflow["20"] = {
+            "class_type": "LoRALoader",
+            "inputs": {
+                "lora_name": "korean_beauty.safetensors",
+                "strength_model": 0.6,
+                "strength_clip": 0.6,
+                "model": ["4", 0],
+                "clip": ["4", 1]
+            }
+        }
+
+        workflow["3"]["inputs"]["model"] = ["20", 0]
+        workflow["6"]["inputs"]["clip"] = ["20", 1]
+        workflow["7"]["inputs"]["clip"] = ["20", 1]
+
+    # 🔥 IP Adapter
     if USE_IPADAPTER and Path(REFERENCE_IMAGE).exists():
         workflow["3"]["inputs"]["model"] = ["10", 0]
 
@@ -95,7 +147,7 @@ def build_workflow(prompt):
                 "clip_vision": ["13", 0],
                 "image": ["11", 0],
                 "model": ["4", 0],
-                "weight": 0.8
+                "weight": 0.6
             }
         }
 
@@ -127,7 +179,15 @@ def generate_image_comfyui(prompt: str):
             json={"prompt": workflow, "client_id": client_id}
         )
 
-        prompt_id = res.json()["prompt_id"]
+        print("RAW RESPONSE:", res.text)
+
+        data = res.json()
+
+        if "prompt_id" not in data:
+            print("❌ No prompt_id → workflow failed")
+            return None
+
+        prompt_id = data["prompt_id"]
 
         for _ in range(60):
             time.sleep(2)
