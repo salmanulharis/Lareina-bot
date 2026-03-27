@@ -1,4 +1,5 @@
 import os
+import re
 from dotenv import load_dotenv
 import random
 import requests
@@ -38,22 +39,48 @@ USE_LORA = False   # ⚠️ SET TRUE only if LoRA nodes exist in ComfyUI
 
 
 def should_generate_image(text):
-    print(f"Checking if should generate image for text: {text}")
+    print(f"Checking text: {text}")
+
     if not text:
         return False
 
-    text = text.lower()
+    text = text.lower().strip()
 
+    # 🔹 Direct trigger phrases
     triggers = [
-        "send photo",
-        "send image",
-        "selfie",
-        "show yourself",
-        "show me you",
-        "i want to see you"
+        "send photo", "send image", "send pic", "send picture",
+        "selfie", "your photo", "your pic", "your picture",
+        "show yourself", "show me you", "i want to see you"
     ]
 
-    return any(t in text for t in triggers)
+    # 🔹 Flexible regex patterns
+    patterns = [
+        r"send.*(photo|image|pic|picture)",
+        r"show.*(yourself|you|photo|image|pic)",
+        r"can i see.*(you|your face|your pic|your image)",
+        r"give me.*(photo|image|pic|picture)",
+        r"(generate|create|make).*(image|photo|picture|pic)",
+        r"(draw|render).*(image|photo|picture)",
+    ]
+
+    # 🔹 Quick keyword + intent logic
+    keywords = ["image", "photo", "picture", "pic", "selfie"]
+    intents = ["send", "show", "generate", "create", "make", "see"]
+
+    # Check direct triggers
+    if any(t in text for t in triggers):
+        return True
+
+    # Check regex patterns
+    for pattern in patterns:
+        if re.search(pattern, text):
+            return True
+
+    # Check keyword + intent combo
+    if any(k in text for k in keywords) and any(i in text for i in intents):
+        return True
+
+    return False
 
 
 def generate_image_prompt(text, ask_ollama, memory_context):
@@ -92,7 +119,7 @@ def build_workflow(prompt):
     frame = detect_frame_type(prompt)
 
     if frame == "full":
-        width, height = 768, 1024
+        width, height = 832, 1216
     elif frame == "close":
         width, height = 512, 768
     else:
@@ -122,7 +149,9 @@ def build_workflow(prompt):
             "inputs": {
                 "clip": ["4", 1],
                 "text": (
-                    "low quality, blurry, bad anatomy, distorted face, extra limbs, duplicate, watermark, text"
+                    "low quality, blurry, bad anatomy, distorted face, extra limbs, duplicate, watermark, text, ",
+                    "cropped, half body, upper body only, close-up, zoomed in, "
+                    "cut off legs, missing feet, bad framing, portrait crop"
                 )
             }
         },

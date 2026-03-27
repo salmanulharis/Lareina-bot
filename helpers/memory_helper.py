@@ -32,8 +32,22 @@ def save_memory(data):
     temp_file = MEMORY_FILE + ".tmp"
 
     try:
+        # ---------------- LIMIT MEMORY ----------------
+
+        # ✅ Keep only summarized memory
+        if "memory" in data:
+            data["memory"] = data["memory"][-800:]  # 🔥 hard limit
+
+        # ✅ Keep only last N chat messages
+        if "messages" in data and isinstance(data["messages"], list):
+            data["messages"] = data["messages"][-10:]  # 🔥 last 10 messages only
+
+        # Optional: clean empty keys
+        cleaned_data = {k: v for k, v in data.items() if v}
+
+        # ---------------- SAVE ----------------
         with open(temp_file, "w") as f:
-            json.dump(data, f, indent=2)
+            json.dump(cleaned_data, f, indent=2)
 
         os.replace(temp_file, MEMORY_FILE)
 

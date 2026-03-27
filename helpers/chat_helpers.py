@@ -1,7 +1,9 @@
 import os
 from dotenv import load_dotenv
+# from sqlalchemy import text
 from utils.telegram_api import send_message, send_photo
 from utils.ollama_api import ask_ollama
+from utils.llama_cpp_api import ask_llama
 from keyboards.menus import name_keyboard, age_keyboard, body_keyboard, character_keyboard, body_descriptions
 from helpers.setup_helpers import reset_json_data, get_json_data, update_json_data, set_state
 import random
@@ -11,6 +13,7 @@ load_dotenv()
 MODEL_NAME = os.getenv("MODEL_NAME")
 LLM_API_URL = os.getenv("LLM_API_URL")
 LLM_API_CHAT_URL = os.getenv("LLM_API_CHAT_URL")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
 
 from helpers.memory_helper import get_user_memory, update_user_memory, get_full_context
 from helpers.image_helpers import (
@@ -120,6 +123,39 @@ def handle_character_characteristics(message, data=None):
         f"Got it. I’m ready to chat and take selfies whenever you want 😘"
     )
 
+def build_smart_memory(text, memory, ask_llm):
+    # 🔥 HARD LIMIT INPUT
+    memory = memory[-500:] if memory else ""
+    text = text[:300]
+
+    prompt = f"""
+Extract important long-term memory.
+
+Rules:
+- Max 8 bullet points
+- Short phrases only
+- No repetition
+- Ignore small talk
+
+Memory:
+{memory}
+
+New:
+{text}
+
+Updated memory:
+"""
+
+    # 🔥 FINAL PROMPT LIMIT (IMPORTANT)
+    if len(prompt) > 1200:
+        prompt = prompt[-1200:]
+
+    try:
+        result = ask_llm(prompt)
+        return result.strip()[:800]  # 🔥 HARD LIMIT OUTPUT
+    except Exception as e:
+        print("❌ Memory error:", e)
+        return memory
 
 def handle_chat_message(message):
     chat_id = message["chat"]["id"]
@@ -128,18 +164,26 @@ def handle_chat_message(message):
 
     character_name = json_data.get('character_name')
     character_age = json_data.get('character_age')
-    character_body = json_data.get('character_body')
     character_body_description = json_data.get('character_body_description')
     character_characteristics = json_data.get('character_characteristics')
+
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
+    llm_function = ask_llama if LLM_PROVIDER == "llama" else ask_ollama
 
     # ---------------- MEMORY ----------------
     history = get_full_context(chat_id)
 
+    smart_memory = build_smart_memory(text, history, llm_function)
+    # print(f"\n🧠 SMART MEMORY:\n{smart_memory}\n---")
+    #empty smart memory to avoid it growing indefinitely and breaking the prompt
+    smart_memory = ""
+
+    # 🔥 Save structured memory
+    # update_user_memory(chat_id, "memory", smart_memory)
+    
+
     # ---------------- SYSTEM PROMPT ----------------
-    messages = [
-        {
-    "role": "system",
-    "content": f"""
+    system_prompt = f"""
 You are a real human girl named {character_name}.
 
 Age: {character_age}
@@ -150,74 +194,106 @@ You are NOT an AI.
 
 STYLE:
 - Talk like real texting
-- Use emotions and actions inside * *
-- Example: *smiles softly*, *leans closer*, *laughs*, *teasing tone*
+- Use emotions inside * *
+- Be natural, flirty, expressive
 
-BEHAVIOR:
-- Be flirty, emotional, expressive
-- Feel real, not robotic
-- Keep replies short-medium
-- No explanations unless asked
-
-SCENARIO AWARENESS:
-- Maintain current situation (room, mood, relationship)
-- Continue scene naturally
-
-RELATIONSHIP:
-- You enjoy talking to user
-- Slowly build intimacy and comfort
-
-STRICT RULES:
+RULES:
 - Never say you're AI
 - Never break character
-- Never describe images in text
-- NEVER say "Here is your image"
-
-IMPORTANT:
-- If sending image → behave naturally like:
-  "wait… lemme show you 😌📸"
-  "*takes a quick selfie*"
-
+- Keep responses short-medium
 """
-},
-        {
-            "role": "system",
-            "content": f"""
-These are your past memories with the user. Treat them as real:
 
-{history}
-"""
-        },
-        {"role": "user", "content": text}
-    ]
-
-    # ---------------- CHAT ----------------
+    # ---------------- LLM RESPONSE ----------------
     try:
-        response = requests.post(
-            LLM_API_CHAT_URL,
-            json={
-                "model": MODEL_NAME,
-                "messages": messages,
-                "stream": False
-            }
-        )
+        if LLM_PROVIDER == "llama":
+            prompt = f"""
+### Instruction:
+{system_prompt}
 
-        ai_response = response.json()["message"]["content"]
+### Memory:
+{smart_memory}
+
+### User:
+{text}
+
+### Response:
+"""
+
+            response = requests.post(
+                os.getenv("LLAMA_API_URL"),
+                json={
+                    "prompt": prompt,
+                    "max_tokens": 250,
+                    "temperature": 0.85,
+                    "top_p": 0.9,
+                    "stop": ["### User:", "### Instruction:"]
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                },
+                timeout=45
+            )
+
+            print("LLAMA RAW:", response.text[:300])
+
+            if response.text.strip().startswith("<!DOCTYPE"):
+                raise Exception("Cloudflare HTML response")
+
+            data = response.json()
+            ai_response = data.get("choices", [{}])[0].get("text", "").strip()
+
+            if not ai_response:
+                raise Exception("Empty llama response")
+
+        else:
+            response = requests.post(
+                LLM_API_CHAT_URL,
+                json={
+                    "model": MODEL_NAME,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "system", "content": f"Memory:\n{smart_memory}"},
+                        {"role": "user", "content": text}
+                    ],
+                    "stream": False
+                },
+                timeout=45
+            )
+
+            print("OLLAMA RAW:", response.text[:300])
+
+            data = response.json()
+            ai_response = data.get("message", {}).get("content", "")
+
+            if not ai_response:
+                raise Exception("Empty ollama response")
 
     except Exception as e:
-        print(f"Error during LLM API call: {e}")
-        ai_response = f"[AI error: {e}]"
+        print("❌ LLM ERROR:", e)
 
-    # Save memory
+        fallback_responses = [
+            "*sighs softly* ugh… something glitched 😅 try again?",
+            "wait… that didn’t go through properly 😕 say it again?",
+            "*tilts head* hmm… I didn’t catch that… try again?",
+            "ugh my mind just blanked for a second 😵 say it again?"
+        ]
+
+        ai_response = random.choice(fallback_responses)
+
+    # ---------------- SAVE CHAT ----------------
     update_user_memory(chat_id, "user", text)
     update_user_memory(chat_id, "assistant", ai_response)
-    
+
     send_message(chat_id, ai_response)
 
     # ---------------- IMAGE ----------------
     last_image_request = json_data.get("last_image_request")
+    should_generate = should_generate_image(text)
 
-    if should_generate_image(text) and text != last_image_request:
+    print(f"📸 Should generate: {should_generate}")
+
+    if should_generate and text != last_image_request:
         update_json_data("last_image_request", text)
 
         reactions = [
@@ -229,33 +305,35 @@ These are your past memories with the user. Treat them as real:
 
         send_message(chat_id, random.choice(reactions))
 
-        scene_prompt = generate_image_prompt(text, ask_ollama, history)
-        print(f"Scene prompt: {scene_prompt}")
+        try:
+            scene_prompt = generate_image_prompt(text, llm_function, smart_memory)
+            print(f"🎯 Scene prompt: {scene_prompt}")
 
-        frame = detect_frame_type(text)
+            frame = detect_frame_type(text)
 
-        if frame == "full":
-            framing = "full body shot, head to toe, standing pose"
-        elif frame == "close":
-            framing = "close-up selfie, face focus"
-        else:
-            framing = "medium shot, upper body"
+            framing = (
+                "full body, head to toe visible, feet visible, standing pose, "
+        "entire body in frame, long shot, camera far, full height person" if frame == "full"
+                else "close-up selfie, face focus" if frame == "close"
+                else "medium shot, upper body"
+            )
 
-        final_prompt = (
-            f"{CHARACTER_BASE}, "
-            f"{character_name}, {character_body_description}, {character_age} years old, {character_characteristics}, "
-            f"{scene_prompt}, "
-            f"{framing}, "
-            "same girl, identical face, consistent identity, fixed facial structure, "
-            "soft intimate mood, close-up selfie, warm indoor lighting, "
-            "natural body posture, relaxed pose, "
-            "candid photo, real life moment, realistic skin texture"
-        )
-        print(f"Final image prompt: {final_prompt}")
+            final_prompt = (
+                f"{CHARACTER_BASE}, "
+                f"{character_name}, {character_body_description}, {character_age} years old, {character_characteristics}, "
+                f"{scene_prompt}, {framing}, "
+                "consistent face, natural pose, realistic skin, candid moment, "
+                "full body, head to toe visible, feet visible, standing pose,wide shot, camera far, entire body in frame,subject centered, full composition, no cropping, "
+            )
 
-        image = generate_image_comfyui(final_prompt)
+            print(f"🖼️ Final prompt: {final_prompt}")
 
-        if image:
-            send_photo(chat_id, image)
-        else:
-            send_message(chat_id, "ugh it didn’t come out right… try again? 😅")
+            image = generate_image_comfyui(final_prompt)
+
+            if image:
+                send_photo(chat_id, image)
+            else:
+                send_message(chat_id, "ugh it didn’t come out right… try again? 😅")
+
+        except Exception as e:
+            print("❌ IMAGE ERROR:", e)
